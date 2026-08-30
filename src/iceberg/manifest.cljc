@@ -21,19 +21,79 @@
 (def ^:const status-added 1)
 (def ^:const content-data 0)
 
+(defn- kv
+  "A map<int,X> as Iceberg writes it: a sequence of key/value records."
+  [m]
+  (when (seq m)
+    (mapv (fn [[k v]] {"key" k "value" v}) (sort-by key m))))
+
+(defn- le-bytes
+  "`n` little-endian two's-complement bytes of an integer.
+
+  Arithmetic rather than `bit-shift-right`, which is a **32-bit** operation on
+  ClojureScript: shifting a long by 32 or more wraps, so bytes 4-7 come back
+  as copies of bytes 0-3. Measured -- the JVM suite passed and nbb did not,
+  which is the runtime this workspace deploys to.
+
+  `mod` is non-negative for a positive divisor and the division floors, so
+  negative values come out as two's complement without ever forming a number
+  larger than the input."
+  [v n]
+  (loop [k 0 x v out []]
+    (if (= k n)
+      out
+      (recur (inc k) (long (Math/floor (/ x 256))) (conj out (mod x 256))))))
+
+(defn bound-bytes
+  "Iceberg's binary single-value serialisation, for the types this writes.
+
+  Bounds are compared as BYTES by a reader, so the encoding is not a detail:
+  a long written big-endian sorts wrongly against another long, and a reader
+  that prunes on it drops rows silently rather than erroring. Little-endian
+  for the numerics, raw UTF-8 for strings, which is what the specification
+  says and what pyiceberg decodes."
+  [type v]
+  (case type
+    :string (mapv #(bit-and % 0xff)
+                  #?(:clj (.getBytes (str v) "UTF-8")
+                     :cljs (vec (.encode (js/TextEncoder.) (str v)))))
+    :boolean [(if v 1 0)]
+    (:int :date) (le-bytes v 4)
+    :long (le-bytes v 8)
+    (throw (ex-info (str "iceberg: no bound encoding for " (pr-str type))
+                    {:type :iceberg/unsupported-bound :given type}))))
+
 (defn data-file
   "One data file's entry, as the `data_file` struct.
 
   `:file-path` must be the location a reader will resolve -- the same string
-  the metadata's `location` prefixes, not a path relative to anything."
-  [{:keys [file-path record-count file-size-bytes file-format]
+  the metadata's `location` prefixes, not a path relative to anything.
+
+  `:lower-bounds` / `:upper-bounds` / `:null-counts` / `:value-counts` /
+  `:column-sizes` are maps of Iceberg field id to value, and every one is
+  optional. **Omitted means unknown, and that is a truthful answer a reader
+  handles** -- it reads every file rather than pruning. A bound that is wrong
+  in the narrowing direction is not: it deletes rows from a query's result
+  with no error anywhere. So these are supplied by a caller that measured
+  them, typically from the Parquet footer the file was written with
+  (`parquet.footer/parse` reports per-chunk statistics), and are never
+  estimated here.
+
+  Bounds arrive already encoded, via `bound-bytes`."
+  [{:keys [file-path record-count file-size-bytes file-format
+           lower-bounds upper-bounds null-counts value-counts column-sizes]
     :or {file-format "PARQUET"}}]
   {"content" content-data
    "file_path" file-path
    "file_format" file-format
    "partition" {}
    "record_count" record-count
-   "file_size_in_bytes" file-size-bytes})
+   "file_size_in_bytes" file-size-bytes
+   "column_sizes" (kv column-sizes)
+   "value_counts" (kv value-counts)
+   "null_value_counts" (kv null-counts)
+   "lower_bounds" (kv lower-bounds)
+   "upper_bounds" (kv upper-bounds)})
 
 (defn write-manifest
   "The bytes of one manifest file.

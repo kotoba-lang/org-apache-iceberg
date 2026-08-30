@@ -92,6 +92,19 @@
 ;; The Avro schemas the specification pins.
 ;; ---------------------------------------------------------------------------
 
+(defn- kv-map
+  "Iceberg writes a map<int,X> as an Avro ARRAY of key/value records tagged
+  `logicalType: map`, not as an Avro map -- an Avro map's keys are strings and
+  these keys are column ids. The key and value carry their own field ids,
+  which the specification assigns separately from the map's own."
+  [record-name value-type key-id value-id]
+  {"type" "array"
+   "logicalType" "map"
+   "items" {"type" "record"
+            "name" record-name
+            "fields" [{"name" "key" "type" "int" "field-id" key-id}
+                      {"name" "value" "type" value-type "field-id" value-id}]}})
+
 (defn- avro-field
   ([name type field-id] {"name" name "type" type "field-id" field-id})
   ([name type field-id default] {"name" name "type" type "field-id" field-id
@@ -130,7 +143,19 @@
        (avro-field "file_format" "string" 101)
        (avro-field "partition" (partition-record spec-fields) 102)
        (avro-field "record_count" "long" 103)
-       (avro-field "file_size_in_bytes" "long" 104)]}
+       (avro-field "file_size_in_bytes" "long" 104)
+       ;; The statistics a reader prunes with. Nullable, and null is a
+       ;; truthful answer -- see `iceberg.manifest/data-file`.
+       (avro-field "column_sizes"
+                   ["null" (kv-map "k117_v118" "long" 117 118)] 108 nil)
+       (avro-field "value_counts"
+                   ["null" (kv-map "k119_v120" "long" 119 120)] 109 nil)
+       (avro-field "null_value_counts"
+                   ["null" (kv-map "k121_v122" "long" 121 122)] 110 nil)
+       (avro-field "lower_bounds"
+                   ["null" (kv-map "k126_v127" "bytes" 126 127)] 125 nil)
+       (avro-field "upper_bounds"
+                   ["null" (kv-map "k129_v130" "bytes" 129 130)] 128 nil)]}
      2)]})
 
 (def manifest-file-schema
