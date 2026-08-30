@@ -36,7 +36,8 @@ def clojure_writes_table(location: pathlib.Path, data_file: pathlib.Path,
     """Drive iceberg.table/append and write every file it returns."""
     metadata_path = location / "metadata" / "v1.metadata.json"
     program = f"""
-    (require '[iceberg.table :as t] '[iceberg.schema :as s] '[clojure.java.io :as io])
+    (require '[iceberg.table :as t] '[iceberg.schema :as s]
+             '[iceberg.manifest :as m] '[clojure.java.io :as io])
     (defn spit-bytes [p bs]
       (io/make-parents p)
       (with-open [o (io/output-stream p)]
@@ -44,9 +45,18 @@ def clojure_writes_table(location: pathlib.Path, data_file: pathlib.Path,
     (let [schema (s/schema [(s/field 1 "id" :string) (s/field 2 "n" :long)])
           out (t/append {{:location "{location}"
                           :schema schema
-                          :data-files [{{:file-path "{data_file}"
-                                         :record-count {rows}
-                                         :file-size-bytes {data_file.stat().st_size}}}]}})]
+                          :data-files
+                          [{{:file-path "{data_file}"
+                             :record-count {rows}
+                             :file-size-bytes {data_file.stat().st_size}
+                             ;; Bounds a caller measured. Field 1 is the
+                             ;; string column, field 2 the long column.
+                             :null-counts {{1 0 2 0}}
+                             :value-counts {{1 {rows} 2 {rows}}}
+                             :lower-bounds {{1 (m/bound-bytes :string "a")
+                                             2 (m/bound-bytes :long 1)}}
+                             :upper-bounds {{1 (m/bound-bytes :string "c")
+                                             2 (m/bound-bytes :long 3)}}}}]}})]
       (doseq [[p bs] (:files out)] (spit-bytes p bs))
       (io/make-parents "{metadata_path}")
       (spit "{metadata_path}" (:metadata-json out)))
@@ -86,6 +96,26 @@ def main() -> int:
         else:
             print(f"ok   plan_files  {len(files)} file, "
                   f"{files[0].file.record_count} records")
+
+        f = files[0].file
+        if not f.lower_bounds or not f.upper_bounds:
+            print("FAIL: pyiceberg saw no bounds -- pruning would read every file")
+            failures += 1
+        else:
+            # Decoded per Iceberg's binary single-value serialisation. If the
+            # numerics were written big-endian these come back as huge numbers
+            # and a reader prunes on them silently.
+            lo_n = int.from_bytes(f.lower_bounds[2], "little")
+            hi_n = int.from_bytes(f.upper_bounds[2], "little")
+            lo_s = f.lower_bounds[1].decode()
+            hi_s = f.upper_bounds[1].decode()
+            if (lo_n, hi_n, lo_s, hi_s) != (1, 3, "a", "c"):
+                print(f"FAIL: bounds decoded as {(lo_n, hi_n, lo_s, hi_s)}, "
+                      f"expected (1, 3, 'a', 'c')")
+                failures += 1
+            else:
+                print(f"ok   bounds      n=[{lo_n},{hi_n}] id=[{lo_s},{hi_s}], "
+                      f"null_counts={dict(f.null_value_counts)}")
 
         try:
             got = t.scan().to_arrow().to_pydict()

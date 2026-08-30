@@ -86,10 +86,22 @@ does not write
 absent, not stubbed. A call for one of these is missing, not silently a no-op.
 ```
 
-Statistics are omitted rather than estimated. A bound that is wrong in the
-narrowing direction deletes rows from a query's answer with no error anywhere,
-so a writer with no statistics of its own must say so by leaving the nullable
-fields null.
+## Statistics, when the caller has measured them
+
+`data-file` takes `:lower-bounds`, `:upper-bounds`, `:null-counts`,
+`:value-counts` and `:column-sizes`, keyed by Iceberg field id. All optional,
+and **omitted means unknown, which is a truthful answer** — a reader handles it
+by reading every file instead of pruning. A bound that is wrong in the
+narrowing direction is not truthful: it deletes rows from a query's answer with
+no error anywhere. So nothing here is estimated; the numbers come from a caller
+that measured them, typically `parquet.footer/parse`, which reports per-chunk
+statistics for the file it just wrote.
+
+Bounds are compared **as bytes** by a reader, so `bound-bytes` is not an
+implementation detail. Little-endian for the numerics, raw UTF-8 for strings.
+Writing a long big-endian produces a file that parses, whose bounds decode to
+enormous numbers, and whose pruning drops rows silently — measured: lower bound
+1 came back as 72057594037927936.
 
 **The catalog commit is not here.** An Iceberg commit is atomic because
 something compare-and-sets the pointer to `metadata.json`; that is a REST call

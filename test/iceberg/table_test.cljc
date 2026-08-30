@@ -44,8 +44,55 @@
                                          (get (s/manifest-entry-schema []) "fields")))
                           "type"))]
       (is (= {"content" 134 "file_path" 100 "file_format" 101 "partition" 102
-              "record_count" 103 "file_size_in_bytes" 104}
+              "record_count" 103 "file_size_in_bytes" 104
+              "column_sizes" 108 "value_counts" 109 "null_value_counts" 110
+              "lower_bounds" 125 "upper_bounds" 128}
              df)))))
+
+(deftest the-statistics-maps-carry-their-own-key-and-value-ids
+  (testing "Iceberg assigns them separately from the map's own field id"
+    (let [df (get (first (filter #(= "data_file" (get % "name"))
+                                 (get (s/manifest-entry-schema []) "fields")))
+                  "type")
+          ids (fn [nm]
+                (let [f (first (filter #(= nm (get % "name")) (get df "fields")))
+                      arr (second (get f "type"))]
+                  [(get arr "logicalType")
+                   (mapv #(get % "field-id") (get (get arr "items") "fields"))]))]
+      (is (= ["map" [117 118]] (ids "column_sizes")))
+      (is (= ["map" [119 120]] (ids "value_counts")))
+      (is (= ["map" [121 122]] (ids "null_value_counts")))
+      (is (= ["map" [126 127]] (ids "lower_bounds")))
+      (is (= ["map" [129 130]] (ids "upper_bounds"))))))
+
+(deftest bounds-are-little-endian-because-readers-compare-them-as-bytes
+  (testing "big-endian longs sort wrongly against each other and prune silently"
+    (is (= [1 0 0 0 0 0 0 0] (manifest/bound-bytes :long 1)))
+    (is (= [0 1 0 0 0 0 0 0] (manifest/bound-bytes :long 256)))
+    (is (= [1 0 0 0] (manifest/bound-bytes :int 1)))
+    (is (= [104 105] (manifest/bound-bytes :string "hi")))
+    (is (= [1] (manifest/bound-bytes :boolean true)))
+    (testing "high bytes are not copies of the low ones -- bit-shift-right is 32-bit on cljs"
+      (is (= [0 0 0 0 1 0 0 0] (manifest/bound-bytes :long 4294967296))))
+    (testing "negatives are two's complement, not a truncated magnitude"
+      (is (= [255 255 255 255 255 255 255 255] (manifest/bound-bytes :long -1)))
+      (is (= [255 255 255 255] (manifest/bound-bytes :int -1))))
+    (is (thrown? #?(:clj Exception :cljs js/Error)
+                 (manifest/bound-bytes :timestamptz 0)))))
+
+(deftest statistics-are-omitted-rather-than-invented
+  (testing "unknown is a truthful answer; a wrong narrow bound deletes rows"
+    (let [df (manifest/data-file {:file-path "f" :record-count 1 :file-size-bytes 2})]
+      (doseq [k ["column_sizes" "value_counts" "null_value_counts"
+                 "lower_bounds" "upper_bounds"]]
+        (is (nil? (get df k)) k)))))
+
+(deftest supplied-statistics-become-key-value-records
+  (let [df (manifest/data-file {:file-path "f" :record-count 1 :file-size-bytes 2
+                                :null-counts {1 0 2 3}
+                                :lower-bounds {1 (manifest/bound-bytes :long 5)}})]
+    (is (= [{"key" 1 "value" 0} {"key" 2 "value" 3}] (get df "null_value_counts")))
+    (is (= [{"key" 1 "value" [5 0 0 0 0 0 0 0]}] (get df "lower_bounds")))))
 
 (deftest manifest-file-field-ids-are-pinned
   (is (= {"manifest_path" 500 "manifest_length" 501 "partition_spec_id" 502
