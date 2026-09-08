@@ -2,7 +2,7 @@
   "The protocol, checked as data. No socket, which is the point: the shape of
   a compare-and-set is what has to be right, and a test that needed a live
   catalog to see it would run rarely and prove less."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [iceberg.rest :as rest]))
 
