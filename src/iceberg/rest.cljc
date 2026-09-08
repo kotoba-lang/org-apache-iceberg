@@ -48,7 +48,7 @@
 
   A token in a query string ends up in proxy logs and shell history. It goes
   in `Authorization`, and this namespace never puts it in `:url`."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [json.core :as json]))
 
 (defn base-url
