@@ -47,7 +47,7 @@ id rather than by name — that is what makes renaming a column metadata-only.
 The ids in the manifest schemas are **assigned by the specification**:
 `file_path` is 100, `record_count` is 103, `manifest_path` is 500. They are
 not this repo's to choose, they are written into the Avro schema as `field-id`
-attributes, and `test/iceberg/table_test.cljc` pins every one of them.
+attributes, and `test/iceberg/table_test.cljk` pins every one of them.
 
 Changing `file_path` from 100 to 199 does not produce a corrupt file. It
 produces a file that parses cleanly and that pyiceberg then refuses with
@@ -113,7 +113,7 @@ testable without a network.
 
 ```
 clojure -M:test
-nbb --classpath "src:test:$(clojure -Spath)" test/run.cljs
+nbb --classpath "src:test:$(clojure -Spath)" test/run.cljk
 clojure -M:lint
 
 python3 -m venv .venv && .venv/bin/pip install "pyiceberg[pyarrow]"
