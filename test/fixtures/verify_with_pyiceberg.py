@@ -61,7 +61,7 @@ def clojure_writes_table(location: pathlib.Path, data_file: pathlib.Path,
       (io/make-parents "{metadata_path}")
       (spit "{metadata_path}" (:metadata-json out)))
     """
-    subprocess.run(["clojure", "-M", "-e", program], cwd=REPO, check=True,
+    subprocess.run(["kbb", "-M", "-e", program], cwd=REPO, check=True,
                    stdout=subprocess.DEVNULL)
     return metadata_path
 

@@ -112,9 +112,9 @@ testable without a network.
 ## Tests, and the oracle
 
 ```
-clojure -M:test
-nbb --classpath "src:test:$(clojure -Spath)" test/run.cljk
-clojure -M:lint
+kbb -M:test
+kbb --backend sci --classpath "src:test:$(kbb -Spath)" test/run.cljk
+kbb -M:lint
 
 python3 -m venv .venv && .venv/bin/pip install "pyiceberg[pyarrow]"
 .venv/bin/python test/fixtures/verify_with_pyiceberg.py
