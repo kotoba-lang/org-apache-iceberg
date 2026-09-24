@@ -18,7 +18,7 @@
             [iceberg.schema :as s]))
 
 (defn random-uuid-string []
-  #?(:clj (str (java.util.UUID/randomUUID))
+  #?(:clj (str (random-uuid))
      :cljs (let [hex (fn [n] (apply str (repeatedly n #(.toString (rand-int 16) 16))))]
              (str (hex 8) "-" (hex 4) "-4" (hex 3) "-a" (hex 3) "-" (hex 12)))))
 
