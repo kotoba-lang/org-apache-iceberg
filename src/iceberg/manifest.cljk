@@ -14,7 +14,7 @@
   whose rows are perfect but whose metadata is missing is not readable as an
   Iceberg manifest -- the reader has nowhere to learn what partition the
   `partition` struct's members mean."
-  (:require [avro.file :as avro]
+  (:require [kotoba.bytes :as kbytes] [avro.file :as avro]
             [iceberg.schema :as s]
             [json.core :as json]))
 
@@ -55,7 +55,7 @@
   [type v]
   (case type
     :string (mapv #(bit-and % 0xff)
-                  #?(:clj (.getBytes (str v) "UTF-8")
+                  #?(:clj (kbytes/utf8-bytes (str v))
                      :cljs (vec (.encode (js/TextEncoder.) (str v)))))
     :boolean [(if v 1 0)]
     (:int :date) (le-bytes v 4)
